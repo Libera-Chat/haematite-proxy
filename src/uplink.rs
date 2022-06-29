@@ -3,7 +3,6 @@ use super::*;
 use std::{
     net::{
         IpAddr,
-        SocketAddr,
         TcpStream,
     },
     io::{
@@ -11,16 +10,21 @@ use std::{
         BufRead,
         BufReader,
     },
+    sync::Arc,
 };
 
 pub struct Uplink
 {
-    local_address: Option<IpAddr>,
-    remote_address: SocketAddr,
+    _local_address: Option<IpAddr>,
+    remote_address: String,
+    remote_name: String,
+    remote_port: u16,
     password: String,
 
     server_name: String,
     sid: String,
+
+    ca: rustls::Certificate,
 }
 
 fn current_time() -> u64
@@ -33,19 +37,35 @@ impl Uplink
     pub fn new(config: Config) -> Self
     {
         Self {
-            local_address: config.uplink_local_address,
+            _local_address: config.uplink_local_address,
+            remote_name: config.uplink_remote_name.unwrap_or(config.uplink_remote_address.clone()),
             remote_address: config.uplink_remote_address,
+            remote_port: config.uplink_remote_port,
             password: config.uplink_password,
 
             server_name: config.server_name,
             sid: config.sid,
+
+            ca: rustls::Certificate(config.uplink_ca),
         }
     }
 
     pub fn run(&self, mut local_stream: impl Write) -> std::io::Result<()>
     {
-        let mut uplink_stream = TcpStream::connect(self.remote_address)?;
-        let mut uplink_reader = BufReader::new(uplink_stream.try_clone()?);
+        let mut uplink_tcpstream = TcpStream::connect((self.remote_address.as_str(), self.remote_port))?;
+
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add(&self.ca).expect("Error adding certificate to store");
+
+        let client_config = Arc::new(rustls::ClientConfig::builder().with_safe_defaults()
+                                                                    .with_root_certificates(root_store)
+                                                                    .with_no_client_auth());
+
+        let mut tls_conn = rustls::ClientConnection::new(client_config,
+                                                     self.remote_name.as_str().try_into().expect("invalid remote server name")
+                                                ).expect("failed to establish tls connection");
+
+        let mut uplink_stream = rustls::Stream::new(&mut tls_conn, &mut uplink_tcpstream);
 
         uplink_stream.write_fmt(format_args!("PASS {} TS 6 :{}\r\n", self.password, self.sid))?;
         uplink_stream.write_all(b"CAPAB :BAN CHW CLUSTER ECHO ENCAP EOPMOD EUID EX IE KLN KNOCK MLOCK QS RSFNC SAVE SERVICES TB UNKLN\r\n")?;
@@ -57,6 +77,7 @@ impl Uplink
         uplink_stream.write_fmt(format_args!("PING :{}", self.sid))?;
 
         let mut line_buffer = Vec::new();
+        let mut uplink_reader = BufReader::new(uplink_stream);
 
         while let Ok(_len) = uplink_reader.read_until(b'\n', &mut line_buffer)
         {
@@ -69,7 +90,7 @@ impl Uplink
                 // server we're linking to.
                 let from_server = String::from_utf8_lossy(&line_buffer[6..]);
                 let pong = format!(":{} PONG {} :{}\r\n", self.sid, self.server_name, from_server);
-                uplink_stream.write_all(pong.as_bytes())?;
+                uplink_reader.get_mut().write_all(pong.as_bytes())?;
             }
 
             local_stream.write_all(&line_buffer)?;
