@@ -74,7 +74,7 @@ impl Uplink
         // SVINFO args: <current TS version> <min supported TS version> 0 :<current unix time>
         uplink_stream.write_fmt(format_args!("SVINFO 6 6 0 :{}\r\n", current_time()))?;
         // Emulate EOB in both directions. We won't ever have anything to burst apart from the SERVER/SVINFO above.
-        uplink_stream.write_fmt(format_args!("PING :{}", self.sid))?;
+        uplink_stream.write_fmt(format_args!("PING :{}\r\n", self.sid))?;
 
         let mut line_buffer = Vec::new();
         let mut uplink_reader = BufReader::new(uplink_stream);
@@ -89,7 +89,7 @@ impl Uplink
                 // The ping we need to respond to for EOB is `PING :<sid>`, where <sid> is that of the
                 // server we're linking to.
                 let from_server = String::from_utf8_lossy(&line_buffer[6..]);
-                let pong = format!(":{} PONG {} :{}\r\n", self.sid, self.server_name, from_server);
+                let pong = format!(":{} PONG {} :{}\r\n", self.sid, self.server_name, from_server.trim());
                 uplink_reader.get_mut().write_all(pong.as_bytes())?;
             }
 
