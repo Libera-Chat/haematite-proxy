@@ -67,10 +67,9 @@ impl Listener
             let mut tls_stream = rustls::Stream::new(&mut tls_conn, &mut stream);
 
             // This is a bit of a hack: we need to complete TLS negotiation before the client's cert will be
-            // available to read, and rustls::Stream only does that when reading or writing.
-            //
-            // A blank line will be ignored by IRC protocol parsing, so this is the simplest way to do it.
-            if let Err(e) = tls_stream.write_all(b"\r\n")
+            // available to read, and there's no method to do that explicitly. flush() will tell it to complete
+            // any outstanding i/o including negotiation, though, without needing to write anything.
+            if let Err(e) = tls_stream.flush()
             {
                 eprintln!("Error on proxy connection: {}", e);
                 continue;
