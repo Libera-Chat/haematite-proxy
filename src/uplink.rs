@@ -13,6 +13,8 @@ use std::{
     sync::Arc,
 };
 
+const PING: &[u8] = b"PING :";
+
 pub struct Uplink
 {
     _local_address: Option<IpAddr>,
@@ -85,10 +87,8 @@ impl Uplink
                 // Uplink socket has been closed for some reason
                 break;
             }
-            let first_six = &line_buffer[0..6];
-            let ping = b"PING :";
-            if line_buffer.len() >= 7 && first_six == ping
-            {
+
+            if line_buffer.len() >= 7 && &line_buffer[0..6] == PING {
                 // We only need to implement enough to emulate EOB and avoid pinging out.
                 // The ping we need to respond to for EOB is `PING :<sid>`, where <sid> is that of the
                 // server we're linking to.
