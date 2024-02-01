@@ -79,8 +79,12 @@ impl Uplink
         let mut line_buffer = Vec::new();
         let mut uplink_reader = BufReader::new(uplink_stream);
 
-        while let Ok(_len) = uplink_reader.read_until(b'\n', &mut line_buffer)
+        while let Ok(len) = uplink_reader.read_until(b'\n', &mut line_buffer)
         {
+            if len == 0 {
+                // Uplink socket has been closed for some reason
+                break;
+            }
             let first_six = &line_buffer[0..6];
             let ping = b"PING :";
             if line_buffer.len() >= 7 && first_six == ping
